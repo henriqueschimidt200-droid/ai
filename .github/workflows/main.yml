@@ -1,12 +1,11 @@
-name: Build APK
+name: Gerar APK
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ "main", "master" ]
 
 jobs:
   build:
+    name: Compilar AI Creator
     runs-on: ubuntu-latest
 
     steps:
@@ -23,19 +22,21 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: "3.35.7"
           cache: true
 
-      - name: Dependências
+      - name: Instalar dependências
         run: flutter pub get
 
-      - name: Verificação
-        run: flutter analyze
+      - name: Limpar projeto
+        run: flutter clean
+
+      - name: Instalar dependências novamente
+        run: flutter pub get
 
       - name: Gerar APK
         run: flutter build apk --release
 
-      - name: Publicar APK
+      - name: Salvar APK
         uses: actions/upload-artifact@v4
         with:
           name: AI-Creator-APK
