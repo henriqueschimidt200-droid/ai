@@ -1,0 +1,17 @@
+AI CREATOR — PASSO A PASSO
+
+1. Leia README_API_KEY.md
+2. Configure o Firebase:
+   flutterfire configure
+3. Copie functions/.env.example para functions/.env
+4. Coloque sua chave HF_TOKEN SOMENTE no functions/.env
+5. Instale:
+   cd functions
+   npm install
+6. Faça o deploy:
+   firebase deploy --only functions
+7. Suba o projeto para GitHub.
+8. Vá em Actions > Build APK > Run workflow.
+9. Baixe o APK em Artifacts > AI-Creator-APK.
+
+NÃO envie functions/.env para o GitHub.

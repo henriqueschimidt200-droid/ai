@@ -1,0 +1,8 @@
+functions/.env
+functions/.runtimeconfig.json
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+.firebase/
+firebase-debug.log
