@@ -1,0 +1,151 @@
+name: Gerar APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    name: Compilar AI Creator
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Baixar projeto
+        uses: actions/checkout@v4
+
+      - name: ☕ Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 🐦 Configurar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: 🔧 Regenerar Android moderno
+        shell: bash
+        run: |
+          echo "=========================================="
+          echo "REGENERANDO PROJETO ANDROID"
+          echo "=========================================="
+
+          # Guarda configurações Android que possam existir.
+          mkdir -p /tmp/android_backup
+
+          if [ -f android/app/google-services.json ]; then
+            cp android/app/google-services.json /tmp/android_backup/google-services.json
+            echo "google-services.json preservado."
+          fi
+
+          # Remove o Android antigo/incompatível.
+          rm -rf android
+
+          # Cria a estrutura Android usando o template da versão atual
+          # do Flutter instalada pelo workflow.
+          flutter create             --platforms=android             --org com.aicreator             --project-name ai_creator             .
+
+          # Restaura google-services.json, caso existisse.
+          if [ -f /tmp/android_backup/google-services.json ]; then
+            cp /tmp/android_backup/google-services.json android/app/google-services.json
+            echo "google-services.json restaurado."
+          fi
+
+          echo ""
+          echo "Android moderno criado com sucesso."
+
+      - name: 🔎 Verificar Android Embedding
+        shell: bash
+        run: |
+          echo "===== AndroidManifest.xml ====="
+          cat android/app/src/main/AndroidManifest.xml
+
+          echo ""
+          echo "===== MainActivity ====="
+          find android/app/src/main -name "MainActivity.*" -print -exec cat {} \;
+
+          echo ""
+          echo "===== Procurando referências V1 ====="
+
+          if grep -R "io.flutter.app.FlutterActivity\|io.flutter.app.FlutterApplication\|flutterEmbedding.*1" android --exclude-dir=build; then
+            echo ""
+            echo "❌ Ainda existe referência ao Android V1."
+            exit 1
+          fi
+
+          echo "✅ Nenhuma referência Android V1 encontrada."
+
+      - name: 📦 Instalar dependências
+        id: dependencies
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: 🔨 Gerar APK
+        id: build_apk
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+
+          flutter build apk --release 2>&1 | tee build.log
+
+          BUILD_EXIT=${PIPESTATUS[0]}
+          echo "BUILD_EXIT=$BUILD_EXIT" >> "$GITHUB_ENV"
+
+          exit $BUILD_EXIT
+
+      - name: 🩺 Diagnóstico automático
+        if: always()
+        shell: bash
+        run: |
+          echo "# 🩺 Diagnóstico da compilação" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${BUILD_EXIT:-1}" = "0" ]; then
+            echo "## ✅ APK compilado com sucesso!" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## ❌ O APK não foi compilado" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### 🔴 Erro encontrado" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+
+            if [ -f build.log ]; then
+              grep -Ei "error:|error |exception|FAILURE|failed|cannot|could not|not found|missing" build.log | tail -100 >> "$GITHUB_STEP_SUMMARY" || true
+            fi
+
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "O log completo está no artefato APK-Debug-Logs." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 📤 Salvar logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: APK-Debug-Logs
+          path: build.log
+          if-no-files-found: ignore
+
+      - name: ❌ Encerrar se falhou
+        if: always()
+        shell: bash
+        run: |
+          if [ "${BUILD_EXIT:-1}" != "0" ]; then
+            echo "❌ A compilação do APK falhou."
+            echo "Veja a etapa '🩺 Diagnóstico automático'."
+            exit 1
+          fi
+
+      - name: 📦 Publicar APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-Creator-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
