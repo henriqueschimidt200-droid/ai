@@ -2,6 +2,10 @@ name: Gerar APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
 
 jobs:
   build:
@@ -9,34 +13,133 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Baixar projeto
+      - name: 📥 Baixar projeto
+        id: checkout
         uses: actions/checkout@v4
 
-      - name: Configurar Java
+      - name: ☕ Configurar Java
+        id: java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Configurar Flutter
+      - name: 🐦 Configurar Flutter
+        id: flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Instalar dependências
-        run: flutter pub get
+      - name: 🔎 Informações do ambiente
+        id: doctor
+        run: |
+          echo "===== FLUTTER ====="
+          flutter --version
 
-      - name: Limpar projeto
-        run: flutter clean
+          echo ""
+          echo "===== FLUTTER DOCTOR ====="
+          flutter doctor -v
 
-      - name: Instalar dependências novamente
-        run: flutter pub get
+          echo ""
+          echo "===== JAVA ====="
+          java -version
 
-      - name: Gerar APK
-        run: flutter build apk --release
+      - name: 📦 Instalar dependências
+        id: dependencies
+        run: |
+          flutter clean
+          flutter pub get
 
-      - name: Salvar APK
+      - name: 🔨 Gerar APK
+        id: build_apk
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+
+          echo "========================================"
+          echo "INICIANDO COMPILAÇÃO DO APK"
+          echo "========================================"
+
+          flutter build apk --release 2>&1 | tee build.log
+
+          BUILD_EXIT=${PIPESTATUS[0]}
+
+          echo "BUILD_EXIT=$BUILD_EXIT" >> "$GITHUB_ENV"
+
+          exit $BUILD_EXIT
+
+      - name: 🩺 Diagnóstico automático
+        if: always()
+        shell: bash
+        run: |
+          echo "# 🩺 Diagnóstico da compilação" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${BUILD_EXIT:-1}" = "0" ]; then
+            echo "## ✅ APK compilado com sucesso!" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "O APK foi gerado corretamente." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## ❌ O APK não foi compilado" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### 🔴 Etapa que falhou" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Gerar APK (`flutter build apk --release`)**" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+
+            echo "### 🔍 Possíveis erros encontrados" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+
+            if [ -f build.log ]; then
+              grep -Ei "error:|error |exception|FAILURE|failed|cannot|could not|not found|missing|compile" build.log | tail -80 >> "$GITHUB_STEP_SUMMARY" || true
+            fi
+
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### 📋 Últimas linhas do log" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+
+            if [ -f build.log ]; then
+              tail -100 build.log >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "O arquivo build.log não foi criado." >> "$GITHUB_STEP_SUMMARY"
+            fi
+
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "### 📁 Veja também o artefato APK-Debug-Logs" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 📤 Salvar logs do erro
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: APK-Debug-Logs
+          path: |
+            build.log
+            flutter*.log
+          if-no-files-found: ignore
+
+      - name: ❌ Encerrar com erro se o APK falhou
+        if: always()
+        shell: bash
+        run: |
+          if [ "${BUILD_EXIT:-1}" != "0" ]; then
+            echo ""
+            echo "=========================================="
+            echo "❌ ERRO NA COMPILAÇÃO"
+            echo "=========================================="
+            echo ""
+            echo "Veja a etapa '🩺 Diagnóstico automático'."
+            echo "O log completo está em: Artifacts > APK-Debug-Logs"
+            echo ""
+            exit 1
+          fi
+
+      - name: 📦 Publicar APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: AI-Creator-APK
